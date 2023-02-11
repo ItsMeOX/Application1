@@ -3,13 +3,18 @@ from PIL import Image, ImageDraw, ImageFilter
 from PySide6.QtWidgets import (
 QGridLayout, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
 QWidget, QApplication, QFormLayout, QScrollArea, QFrame, 
-QGraphicsDropShadowEffect, QSlider, QStyle)
-from PySide6.QtCore import Qt, QPoint, QThreadPool, QRunnable, QObject, QUrl, Signal
+QGraphicsDropShadowEffect, QSlider, QGraphicsScene, QGraphicsView,
+QMdiArea, QMdiSubWindow, QStackedWidget
+)
+from PySide6.QtCore import (Qt, QPoint, QThreadPool, QRunnable, QObject, QUrl, 
+Signal, QPropertyAnimation, QRect)
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtGui import QPixmap, QColor, QPainter, QBrush, QPen
 import subprocess
 from random import randint
 from time import ctime, time
+from bs4 import BeautifulSoup
+import requests
 
 
 import os
@@ -30,7 +35,15 @@ class Window(QWidget):
         self.layout = QGridLayout()
         self.setLayout(self.layout)
         self.layout.setContentsMargins(0,0,0,0)
-        
+
+        self.stackedWidget = QStackedWidget()
+        #self.stackedWidget.setStyleSheet("border: 1px solid yellow;")
+        self.homeWidgetFunc()
+        self.stackedWidget.addWidget(self.homeWidget)
+        self.stackedWidget.setCurrentWidget(self.homeWidget)
+
+        self.layout.addWidget(self.stackedWidget , 1, 1, 7, 1)
+
         self.initUI()
 
         # <Clear Music Directory File>
@@ -42,45 +55,47 @@ class Window(QWidget):
         self.player.setAudioOutput(self.audio_output)
         self.audio_output.setVolume(self.slider.value()/100)
         self.playing = False
-        self.currentSongIndex = 1
+        self.currentSongIndex = 0
         self.playingSongIndex = 0
         self.currentPos = 0
         self.setPath = True
         self.then = time()
-
-        with open("music\\history.txt","r", encoding='utf-8') as file:
-            self.datalen = len(file.readlines())
-            print(f"data length: {self.datalen}")
-        if self.datalen > 0:
-            self.historyDec = 2
-        else:
-            self.historyDec = 1
-
+        self.watched = []
+        self.name = ""
+        self.addEnabled = False
+        self.count = 10
+        self.repeatedLyric = False
+        self.initialising = True
         
         # init for the first time
         self.repeatCountCurrent = 1
-        self.playProcessInit = PlayProcess()
-        self.pool.start(self.playProcessInit)
-        self.playProcessInit.signals.completed.connect(self.addMusic)
-        
-        # add 9 more songs 
-        self.playProcessInit.signals.completed.connect(self.playProcessFuncInit)
-        self.repeatCountCurrent = 1
-        # </Media Player>
+        self.playProcessFunc()
 
-    def playProcessFuncInit(self, count=3,*arg):
-        if self.repeatCountCurrent < count:
+    def homeWidgetFunc(self):
+        self.homeWidget = QWidget()
+        self.homeLayout = QGridLayout()
+        self.homeLayout.setContentsMargins(0,100,0,0)
+        self.setHomeLayout()
+        
+    def setHomeLayout(self, *arg):
+        self.homeWidget.setLayout(self.homeLayout)
+
+    def playProcessFunc(self, *arg):
+        if self.repeatCountCurrent < self.count:
             self.playProcess = PlayProcess()
             self.pool.start(self.playProcess)
             self.playProcess.signals.completed.connect(self.addMusic)
-            self.playProcess.signals.completed.connect(self.repeatCountInc)
-            self.playProcess.signals.completed.connect(self.playProcessFuncInit)
-            
-    def playProcessFunc(self, *arg):
-        self.playProcess2 = PlayProcess()
-        self.pool.start(self.playProcess2)
-        self.playProcess2.signals.completed.connect(self.addMusic)
-        
+        else:
+            self.initialising = False
+            self.repeatCountCurrent = 1
+
+    
+    def createLyric(self, *arg):
+        print(f"GETTING LYRICS...{self.name}")
+        self.lyrics = Lyrics(self.name)
+        window.pool.start(self.lyrics)
+        self.lyrics.signals.completed.connect(self.repeatCountInc)
+        self.lyrics.signals.completed.connect(self.playProcessFunc)  
 
     def repeatCountInc(self, *arg):
         if self.addEnabled:
@@ -89,7 +104,7 @@ class Window(QWidget):
     def mousePressEvent(self, ev):
         self.windowDrag = False
         self.oldPos = ev.globalPosition().toPoint()
-        if self.oldPos.y() - self.y() < 100:
+        if self.oldPos.y() - self.y() < 75:
             self.windowDrag = True
 
     def mouseMoveEvent(self, ev):
@@ -101,11 +116,12 @@ class Window(QWidget):
 
     def initUI(self):
         self.menu()
-
+        LEFT_LAYOUT_INDEX = 0
+        RIGHT_LAYOUT_INDEX = 1
         # left
-        LEFT = 200
+        LEFT = 0
         self.left = QVBoxLayout()
-        self.layout.addLayout(self.left, 1, 1)
+        self.homeLayout.addLayout(self.left, 1, LEFT_LAYOUT_INDEX)
         self.left.setContentsMargins(LEFT,100,0,0)
         
         self.maskedCoverImage = self.mask(Image.open("images\\application\\cover.png"))
@@ -119,7 +135,7 @@ class Window(QWidget):
         self.songName = QLabel("NAME")
         self.songNameLayout.setContentsMargins(LEFT,50,0,0)
         self.songNameLayout.addWidget(self.songName, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.layout.addLayout(self.songNameLayout, 2, 1)
+        self.homeLayout.addLayout(self.songNameLayout, 2, LEFT_LAYOUT_INDEX)
 
         self.songProgressLayout = QVBoxLayout()
         self.songProgressLayout.setContentsMargins(LEFT,0,0,0)
@@ -134,12 +150,14 @@ class Window(QWidget):
         self.songProgressLayout.addWidget(self.songProgress)
         self.songProgressLayout.addWidget(self.songProgressTime, alignment = Qt.AlignmentFlag.AlignCenter)
 
-        self.layout.addLayout(self.songProgressLayout, 3, 1)
+        
+
+        self.homeLayout.addLayout(self.songProgressLayout, 3, LEFT_LAYOUT_INDEX)
 
         self.leftbottom = QHBoxLayout()
         self.leftbottom.setContentsMargins(LEFT,40,0,0)
         self.leftbottom.addStretch()
-        self.layout.addLayout(self.leftbottom, 4, 1)
+        self.homeLayout.addLayout(self.leftbottom, 4, LEFT_LAYOUT_INDEX)
 
         self.playPreviousIcon = QPixmap("images\\application\\cover.png").scaled(40,40)
         self.playPrevious     = QLabel()
@@ -190,85 +208,197 @@ class Window(QWidget):
         self.sliderLayout.setSpacing(10)
         self.sliderLayout.addWidget(self.volumeValue)
         self.sliderLayout.addWidget(self.slider)
-        self.layout.addLayout(self.sliderLayout, 5, 1)
+        self.homeLayout.addLayout(self.sliderLayout, 5, LEFT_LAYOUT_INDEX)
 
         self.slider.valueChanged.connect(self.volume)
         
 
         # right
+        self.SONGLISTLEFT = 250
         windowButtonsLayout = QHBoxLayout()
-        windowButtonsLayout.setContentsMargins(300,10,10,0)
-        self.layout.addLayout(windowButtonsLayout, 0, 2)
+        windowButtonsLayout.setContentsMargins(self.SONGLISTLEFT,10,10,0)
+        self.layout.addLayout(windowButtonsLayout, 0, RIGHT_LAYOUT_INDEX)
         closeButton = QLabel()
         closeButton.setPixmap(self.menuIcon)
         closeButton.mouseReleaseEvent = self.windowClose
         windowButtonsLayout.addWidget(closeButton, alignment=Qt.AlignmentFlag.AlignRight)
         
 
+        
 
-        self.SONGLISTLEFT = 300
-        self.songListLayout = QVBoxLayout()
-        self.songListLayout.setContentsMargins(self.SONGLISTLEFT,130,0,0)
-        self.layout.addLayout(self.songListLayout, 1, 2, 7, 1)
-    
-    
+        self.rightFrame = QFrame()
+        #self.rightFrame.setStyleSheet('border: 1px solid "white"')
+        self.homeLayout.addWidget(self.rightFrame, 0, RIGHT_LAYOUT_INDEX, 7, 1)
+        
+        self.rightLayout = QVBoxLayout()
+        self.rightLayout.setSpacing(2)
+        self.rightFrame.setLayout(self.rightLayout)
+        self.rightLayout.setContentsMargins(self.SONGLISTLEFT,0,0,0)
+
+
+
+
+        self.titleLayout = QHBoxLayout()
+        self.titleLayout.setContentsMargins(0,0,0,0)
+        self.titleLayout.setSpacing(0)
+        title = QPushButton("PL",self, clicked = self.playlistShow)
+        title.setProperty("class", "Title")
+        title.setFixedWidth(300)
+        title.setFixedHeight(75)
+        self.titleLayout.addWidget(title)
+        
+        lyrics = QPushButton("L", self, clicked = self.lyricShow)
+        lyrics.setFixedWidth(300)
+        lyrics.setFixedHeight(75)
+        lyrics.setProperty("class", "Title")
+        lyrics.setStyleSheet("border-style: solid solid solid none;")
+        self.titleLayout.addWidget(lyrics)
 
         self.musicDirectory = "C:\\Users\\ongxu\\Downloads\\test\\music"
         self.musicList = list()
         
         self.QForm  = QFormLayout()
+        self.QForm.setSpacing(5)
+        self.QForm.setContentsMargins(0,0,0,0)
         self.groupBox  = QFrame()
+        self.groupBox.setStyleSheet('background: #181818;')
+
+        #self.groupBox.setStyleSheet('border: 1px solid "white" ')
         
-        self.lastRow = 20 + 1
+        self.lastRow = 20
 
-        for i in range(self.lastRow): 
-            blank = QLabel("{:02d}".format(i))
-            blank.setProperty("class", "ScrollAreaText")
-
-
-            self.QForm.addRow(blank)
-        
-
+        for i in range(0, self.lastRow):
+            self.songLabel = QLabel("{:02d}".format(i+1), alignment = Qt.AlignmentFlag.AlignLeft)
+            self.songLabel.setProperty("class", "ScrollAreaText")
+            self.text = self.songLabel.text()
+            self.songLabel.mouseReleaseEvent = lambda _ , text=self.text: self.songTapped(int(text))
+            self.QForm.addRow(self.songLabel)
 
         self.groupBox.setLayout(self.QForm)
 
-        self.scroll = QScrollArea()
-
-        SCROLLWIDTH = 450
-        self.scroll.setWidget(self.groupBox)
-        self.scroll.setWidgetResizable(True)      
-        self.scroll.setFixedWidth(SCROLLWIDTH)
-        self.scroll.setFixedHeight(1000)
-        self.scrollBar = self.scroll.verticalScrollBar()
-    
-        self.songListLayout.addWidget(self.scroll)
-
-        title = QLabel("TITLE",self)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setProperty("class", "Title")
-        title.setFixedWidth(440)
-        title.setFixedHeight(150)
+        self.scrollArea = QScrollArea()
+        self.scrollArea.setWidget(self.groupBox)
+        self.scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scrollArea.setWidgetResizable(True)      
+        self.scrollBar = self.scrollArea.verticalScrollBar()
         
-        # LEFT(300) + LEFTBARWIDTH(100) + COVERWIDTH(500) + LEFTLISTLEFT(300) + SCROLLWIDTH(450)
-        title.move(LEFT+LEFTBARWIDTH+300+500+21,100)
+        self.scrollAreaLayout = QVBoxLayout()
+        self.scrollAreaLayout.setContentsMargins(0,0,0,0)
+        self.scrollAreaLayout.addWidget(self.scrollArea)
+
+        self.rightLayout.addLayout(self.titleLayout)
+        
+
+        self.titleStacked = QStackedWidget()
+        self.rightLayout.addWidget(self.titleStacked)
+
+        self.songListWidget = QWidget() 
+        self.songListWidget.setLayout(self.scrollAreaLayout)
+        self.titleStacked.addWidget(self.songListWidget)
+        self.titleStacked.setCurrentWidget(self.songListWidget)
 
 
-    # menu icon
+        self.lyricsWidget = QWidget()
+        self.titleStacked.addWidget(self.lyricsWidget)
+        self.lyricsLayout = QVBoxLayout()
+        self.lyricsWidget.setLayout(self.lyricsLayout)
+        self.lyricsLayout.setContentsMargins(0,0,0,0)
+        self.lyricsScrollArea = QScrollArea()
+        self.lyricsScrollArea.setStyleSheet("background: #181818;")
+        self.lyricsScrollArea.setFixedHeight(1000)
+        #self.lyricsScrollArea.setStyleSheet("border: 1px solid white;")
+        self.lyricsLabel = QLabel("", alignment = Qt.AlignmentFlag.AlignTop)
+        
+        self.lyricsLabel.setProperty("class", "LyricsText")
+        
+        self.lyricsScrollArea.setWidget(self.lyricsLabel)
+        self.lyricsLayout.addWidget(self.lyricsScrollArea, alignment=Qt.AlignmentFlag.AlignTop)
+      
+    def songTapped(self, index):
+        self.songDeHighlight()
+        self.addRow()
+        self.scrollBar.setValue(self.scrollBar.value() + self.QForm.itemAt(self.playingSongIndex).widget().height())
+        self.currentPos = 0
+        self.setPath = True
+        self.playing = False
+        self.playingSongIndex = index - 1
+        if not self.initialising:
+            self.count = 2
+            self.playProcessFunc()
+        self.playMusic()
+
+    def playlistShow(self, *arg):
+        self.titleStacked.setCurrentWidget(self.songListWidget)
+
+
+    def lyricShow(self, *arg):
+        self.titleStacked.setCurrentWidget(self.lyricsWidget)
+
+    # menu
     def menu(self):
         self.leftbar = QVBoxLayout()
+        self.leftbar.setContentsMargins(0,0,300,0)
         self.leftbar2 = QFrame()
         self.leftbar2.setFixedWidth(LEFTBARWIDTH)
         self.leftbar2.setStyleSheet("background-color: #181818")
         self.leftbar.addWidget(self.leftbar2)
 
         self.menuIcon = QPixmap("images\\application\\menu.png").scaled(40,30, mode = Qt.SmoothTransformation)
-        self.menu = QLabel(self.leftbar2)
-        self.menu.setGeometry(30,1100,40,30)
-        self.menu.setPixmap(self.menuIcon)
+        self.menuLabel = QLabel(self.leftbar2)
+        self.menuLabel.setGeometry(30,1100,40,30)
+        self.menuLabel.setPixmap(self.menuIcon)
         self.layout.addLayout(self.leftbar, 0, 0, 8, 1)
-        self.menu.mouseReleaseEvent = self.menuClick
+        self.menuLabel.mouseReleaseEvent = self.menuClick
+
+        self.menuExpanded = QFrame(self)
+
+        self.menuExpanded.setStyleSheet("""
+            background-color: white;
+        """)
+        self.menuExpanded.setGeometry(0,0,0,1200)
+        
+        # menu -------------
+
+        self.menuFrame = QFrame(self)
+        self.menuFrame.setStyleSheet('border: 1px solid "white" ')
+        self.menuFrame.setMidLineWidth(0)
+        
+        self.menuLayout = QVBoxLayout()
+        self.menuLayout.setContentsMargins(0,0,0,0)
+        self.menuLayout.setSpacing(0)
+        self.menuFrame.setLayout(self.menuLayout)
+
+        self.menuInitUi()
+ 
+        self.menuFrame.hide()
 
     def menuClick(self, *arg):
+        self.menuFrame.show()
+        self.Animation = QPropertyAnimation(self.menuFrame, b'geometry')
+        self.Animation.setDuration(250)
+        self.Animation.setStartValue(QRect(0,0,0,1332))
+        self.Animation.setEndValue(QRect(0,0,350,1332))
+        self.Animation.start()
+
+    def menuInitUi(self):
+        self.menuButton = QPushButton("close", clicked = self.closeMenu)
+        self.menuButton.setFixedHeight(100)
+        self.menuLayout.addWidget(self.menuButton, alignment=Qt.AlignmentFlag.AlignTop)
+
+        self.historyButton = QPushButton("history", clicked = self.historyFunc)
+
+        self.menuStacked = QStackedWidget()
+        self.menuLayout.addWidget(self.menuStacked)
+
+
+    def closeMenu(self, *arg):
+        self.Animation = QPropertyAnimation(self.menuFrame, b'geometry')
+        self.Animation.setDuration(250)
+        self.Animation.setStartValue(QRect(0,0,350,1332))
+        self.Animation.setEndValue(QRect(0,0,0,1332))
+        self.Animation.start()
+
+    def historyFunc(self, *arg):
         pass
 
 
@@ -288,7 +418,7 @@ class Window(QWidget):
 
     def previous(self, *arg):
         try:
-            if self.playingSongIndex - 1 >= 0:
+            if self.playingSongIndex >= 1:
                 self.songDeHighlight()
                 self.scrollBar.setValue(self.scrollBar.value() - self.QForm.itemAt(self.playingSongIndex).widget().height())
                 self.playing = False
@@ -318,8 +448,8 @@ class Window(QWidget):
         self.player.setPosition(pos)
 
     def playMusic(self, *arg): #make this button clickable after shuffle
-        self.songHighlight()
         print(f"CURRENT INDEX: {self.playingSongIndex}")
+        self.songHighlight()
         if self.setPath:
             try:
                 print(f"CURRENT PLAYING SONG INDEX: {self.playingSongIndex}")
@@ -330,9 +460,20 @@ class Window(QWidget):
                 self.player.mediaStatusChanged.connect(self.statusChanged)
                 self.player.positionChanged.connect(self.positionChangedProcess)
                 self.songProgress.setRange(0,self.player.duration()/100)
-
             except IndexError:
                 print("index error")
+
+            self.lyricsLabel.setText("")
+            for file in os.listdir("C:\\Users\\ongxu\\Downloads\\test\\music\\lyrics"):
+                if list(self.musicList)[self.playingSongIndex] == file[:-4]:
+                    print(f"filename: {file[:-4]}")
+                    with open("C:\\Users\\ongxu\\Downloads\\test\\music\\lyrics\\" + file, "r", encoding='utf-8') as lyricsText:
+                        lyrics = list(lyricsText)
+                        if len(lyrics)  != 1:
+                            for lyric in lyrics:
+                                self.lyricsLabel.setText(self.lyricsLabel.text() + lyric)
+                    break
+            self.lyricsLabel.adjustSize()
 
         if not self.playing:
             self.setPath = False
@@ -347,7 +488,7 @@ class Window(QWidget):
         self.pool.start(progressBarProcess)
 
     def statusChanged(self, status):
-        if status == QMediaPlayer.EndOfMedia and time() - self.then > 3:
+        if status == QMediaPlayer.EndOfMedia and time() - self.then > 1:
             self.songDeHighlight()
             self.addRow()
             self.then = time()
@@ -356,7 +497,9 @@ class Window(QWidget):
             self.setPath = True
             self.playing = False
             self.playingSongIndex += 1
-            self.playProcessFunc()
+            if not self.initialising:
+                self.count = 2
+                self.playProcessFunc()
             self.playMusic()
             print("END OF MUSIC")
         if status == QMediaPlayer.LoadedMedia:
@@ -379,7 +522,7 @@ class Window(QWidget):
         self.player.play()
 
     def songHighlight(self, *arg):
-        setPlaying = self.QForm.itemAt(self.playingSongIndex+1).widget()
+        setPlaying = self.QForm.itemAt(self.playingSongIndex).widget()
         setPlaying.setStyleSheet("""
             font-size : 30px;
             background-color: #181818;
@@ -391,7 +534,7 @@ class Window(QWidget):
         """)
 
     def songDeHighlight(self, *arg):
-        setPlaying = self.QForm.itemAt(self.playingSongIndex+1).widget()
+        setPlaying = self.QForm.itemAt(self.playingSongIndex).widget()
         setPlaying.setStyleSheet("""
                 font-size: 20px;
                 background-color: #181818;
@@ -400,40 +543,21 @@ class Window(QWidget):
                 border-width: 1px;
                 margin: 0px 0px 0px 0px;
                 padding: 15px;
-            """)
-
-    def loadMusic(self, *arg):
-        self.playProcessFunc()
-        
+            """)  
         
 
     def addMusic(self):    
-        self.addEnabled = False
-        for file in sorted(Path(self.musicDirectory).iterdir(), key=os.path.getctime):
-            filename = os.fsdecode(file)
-            if filename.endswith(".wav"):
-                idx = filename[::-1].find("\\")
-                name = filename[-idx:-4]
-                if name not in self.musicList and "伴奏" not in name and "和音" not in name and "Outro" not in name and "Intro" not in name:
-                    setName = self.QForm.itemAt(self.currentSongIndex).widget()
-                    setName.setText("{0:2d}.  {1}".format(self.currentSongIndex , name))
-                    
-                    self.addEnabled = True
-                    if name not in self.musicList:
-                        self.musicList.append(name)
-                        with open("music\\history.txt","r", encoding='utf-8') as file:
-                            data = file.readlines()
-                            data[self.datalen + self.currentSongIndex - self.historyDec] = name + " --- " + str(ctime()) + " " + data[self.datalen + self.currentSongIndex - self.historyDec][:-2] + "\n"         
-                            with open("music\\history.txt","w", encoding='utf-8') as file:
-                                file.writelines(data)
-                    self.currentSongIndex += 1
-                
-        print(self.musicList)
+        self.addMUSIC = AddMusic()
+        self.pool.start(self.addMUSIC)
+        self.addMUSIC.signals.completed.connect(self.createLyric)
+
 
     def addRow(self, *arg):
         blank = QLabel("{:02d}".format(int(self.QForm.itemAt(self.lastRow-1).widget().text()) + 1))
         self.lastRow += 1
         blank.setProperty("class", "ScrollAreaText")
+        self.text = blank.text()
+        blank.mouseReleaseEvent = lambda _ , text=self.text: self.songTapped(int(text))
         self.QForm.addRow(blank)
 
     def volume(self):
@@ -448,6 +572,10 @@ class Window(QWidget):
             pass
         self.player.stop()
         self.clearMusicDirectory()
+
+        with open("C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt", "w") as file:
+            file.truncate(0)
+
         app.quit()
 
     def clearMusicDirectory(self):
@@ -457,6 +585,8 @@ class Window(QWidget):
                     os.remove(file)
             except:
                 continue
+        
+# THREADS -------------------------------------------------------------------------------------------------
 
 class PlayProcess(QRunnable):
     def __init__(self):
@@ -467,19 +597,63 @@ class PlayProcess(QRunnable):
         self.downloadVideo("https://music.youtube.com/playlist?list=OLAK5uy_nnB_5jjZqPTjrg1I95nII6bTa4tApbPjY")
         
     def downloadVideo(self, url):
+        global process
         filename = 'C:\\Users\\ongxu\\Downloads\\test\\music\\%(title)s.%(ext)s'
         while True:
-            try:  
-                global process
-                ydl_cmd = ['yt-dlp', '--playlist-items', str(randint(1,146)), '--extract-audio', '--audio-format', 'wav', '--audio-quality', '256', '-o', filename, "--download-archive", "C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt" , url]
-                process = subprocess.Popen(ydl_cmd)
-                process.wait()
-                self.signals.completed.emit()
+            try:
+                randomNum = randint(1,147)
+                if randomNum not in window.watched:
+                    window.watched.append(randomNum)  
+                    ydl_cmd = ['yt-dlp', '--playlist-items', str(randint(1,147)), '--extract-audio', '--audio-format', 'wav', '--audio-quality', '256', '-o', filename, "--download-archive", "C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt" , url]
+                    process = subprocess.Popen(ydl_cmd)
+                    process.wait()
+                    self.signals.completed.emit()
+                else:
+                    continue
             except:
-                print("error, retrying...")
-                continue
+                print("downloading error...")
+                break
             else:
                 break     
+
+class AddMusic(QRunnable):
+    def __init__(self):
+        super().__init__()
+        self.signals = Signals()
+        self.name = ""
+        
+
+    def run(self):
+        self.addMusic()
+
+    def addMusic(self):
+        window.addEnabled = False
+        for file in sorted(Path(window.musicDirectory).iterdir(), key=os.path.getctime):
+            filename = os.fsdecode(file)
+            if filename.endswith(".wav"):
+                idx = filename[::-1].find("\\")
+                self.name = filename[-idx:-4]
+                if self.name not in window.musicList and "伴奏" not in self.name and "和音" not in self.name and "Outro" not in self.name and "Intro" not in self.name:
+                    
+                    setName = window.QForm.itemAt(window.currentSongIndex).widget()
+                    setName.setText("{0:2d}.  {1}".format(window.currentSongIndex + 1 , self.name))
+                    print(f"ADDING SONG INDEX: {window.currentSongIndex + 1}")
+                    window.addEnabled = True
+                    window.name = self.name                    
+                    if self.name not in window.musicList:
+                        window.musicList.append(self.name)
+                        try:
+                            with open("music\\history.txt","r", encoding='utf-8') as file:
+                                data = file.readlines()
+                                data[window.currentSongIndex] = self.name + " --- " + str(ctime()) + " " + data[window.currentSongIndex][:-2] + "\n"         
+                                with open("music\\history.txt","w", encoding='utf-8') as file:
+                                    file.writelines(data)
+                        except: pass
+                    window.currentSongIndex += 1
+        
+        print(window.musicList)
+        self.signals.completed.emit()
+
 
 class ProgressBarProcess(QRunnable):
     def run(self):
@@ -494,9 +668,74 @@ class ProgressBarProcess(QRunnable):
 class Signals(QObject):
     completed = Signal()
 
-    
+class Lyrics(QRunnable):
+    def __init__(self, name: str):
+        super().__init__()
+        self.signals = Signals()
+        self.name = name
+        self.repeatedLyric = False
+        self.timeout = 0
+
+    def run(self):
+        self.lyricGet()
+
+    def lyricGet(self, *arg):
+        try:
+            print("GETTING LYRICS...")
+            url = "https://mojim.com/cnh116318.htm"
+
+            page = requests.get(url)
+            soup = BeautifulSoup(page.content, "html.parser")
+
+            frame = soup.find("div", id="frame").find("div", id="Tb3").find("div", id="inS").find("dl", class_="ha0")
+            contents = frame.find_all("dd")
 
 
+            for content in contents:
+                titles = content.find_all("span", {'class':['hc3','hc4']})
+                for title in titles:
+                    songNames = title.find_all("a", href = True)
+                    for songName in songNames:
+                        if self.name in songName.getText() and "伴奏" not in self.name:
+                            print(window.addMUSIC.name , songName.getText())
+                            lyricPage = requests.get("https://mojim.com" + songName['href'])
+                            lyricSoup = BeautifulSoup(lyricPage.content, "html.parser")
+                            self.timeout += 1
+                            break
+                    
+
+
+            lyricFrame = lyricSoup.find("div", id="frame").find("div", id="Tb3").find_all("table")[1].find("dd", id= "fsZx3")
+
+            lyrics = []
+
+            for lyric in lyricFrame:
+                if "<" not in str(lyric) and ":" not in str(lyric) and "更多更详尽歌词" not in str(lyric):
+                    lyrics.append(str(lyric))
+            for file in os.listdir("C:\\Users\\ongxu\\Downloads\\test\\music\\lyrics\\"):
+                if file[:-4] == self.name:
+                    self.repeatedLyric = True
+                    break
+                
+            if not self.repeatedLyric:
+                with open(f"C:\\Users\\ongxu\\Downloads\\test\\music\\lyrics\\{self.name}.txt","w", encoding='utf-8') as file:
+                    file.writelines("\n".join(lyrics[:-1]))
+
+            self.repeatedLyric = False        
+            try:
+                self.signals.completed.emit()
+            except:
+                print("signal destroyed")
+
+        except:
+            with open(f"C:\\Users\\ongxu\\Downloads\\test\\music\\lyrics_failed\\{self.name}.txt","w", encoding='utf-8') as file:
+                file.writelines(f"{self.name}")
+
+            self.signals.completed.emit()
+
+            print(f"{self.name} has no lyric")
+
+        
 app = QApplication(sys.argv)
 window = Window()
 window.show()
@@ -536,6 +775,11 @@ window.setStyleSheet("""
     font-weight: bold;
 }
 
+.LyricsText{
+    font-size: 25px;
+    
+}
+
 QVBoxLayout{
     border-style: solid;
     border-color: white;
@@ -571,6 +815,9 @@ QSlider::handle:hover#Volume{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #b4b4ff, stop:1 #8f8fff);
 }
 
+QStackedWidget{
+    margin: 0px;
+}
 
 """)
 sys.exit(app.exec())
