@@ -16,7 +16,6 @@ from time import ctime, time
 from bs4 import BeautifulSoup
 import requests
 
-from PIL import Image
 import os
 from pathlib import Path
 
