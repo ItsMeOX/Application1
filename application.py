@@ -4,12 +4,13 @@ from PySide6.QtWidgets import (
 QGridLayout, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
 QWidget, QApplication, QFormLayout, QScrollArea, QFrame, 
 QGraphicsDropShadowEffect, QSlider, QGraphicsScene, QGraphicsView,
-QStackedWidget, QGraphicsPixmapItem,
+QStackedWidget, QGraphicsPixmapItem, QGraphicsRectItem
 )
-from PySide6.QtCore import (Qt, QPoint, QThreadPool, QRunnable, QObject, QUrl, 
-Signal, QPropertyAnimation, QRect, QTimer)
+from PySide6.QtCore import (Qt, QPoint, QThreadPool, QRunnable, QObject, QUrl, QCoreApplication,
+Signal, QPropertyAnimation, QRect, QTimer, QPointF, QVariantAnimation, QEasingCurve)
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtGui import QPixmap, QColor, QPainter, QTransform, QFont, QFontDatabase, QTextDocument, QTextOption
+
 import subprocess
 from random import randint
 from time import ctime, time
@@ -69,9 +70,10 @@ class Window(QWidget):
         self.repeatedLyric = False
         self.initialising = True
         self.timerForcePause = True
+        self.minimizeCountCurrent = 0
         
         # init for the first time
-        self.repeatCountCurrent = 1
+        self.repeatCountCurrent = 10
         self.playProcessFunc()
 
     def homeWidgetFunc(self):
@@ -114,57 +116,86 @@ class Window(QWidget):
         if self.windowDrag:
             PosDifference = QPoint(ev.globalPosition().toPoint() - self.oldPos)
             self.move(self.x() + PosDifference.x(), self.y() + PosDifference.y())
-            self.oldPos = ev.globalPosition().toPoint()    
-
+            self.oldPos = ev.globalPosition().toPoint()     
+        
     def initUI(self):
         self.menu()
         LEFT_LAYOUT_INDEX = 0
         RIGHT_LAYOUT_INDEX = 1
         # left
         LEFT = 0
+
+        self.leftFrameLayout = QVBoxLayout()
+        self.leftFrame = QFrame()
+        self.leftFrame.setObjectName("frame")
+        self.leftFrameLayout.addWidget(self.leftFrame)
+        self.leftMain = QGridLayout()
+        self.leftFrame.setLayout(self.leftMain)
+        # self.leftFrame.setStyleSheet("""
+        #     QFrame#frame{
+        #         background: #aa646464;
+        #         border-radius: 20px;
+        #         border: 1px solid darkGray;
+        #         border-width: 2px;
+        #     }
+        # """)
         self.left = QVBoxLayout()
-        self.homeLayout.addLayout(self.left, 1, LEFT_LAYOUT_INDEX)
-        self.left.setContentsMargins(LEFT,100,0,0)
         
+        self.homeLayout.addLayout(self.leftFrameLayout, 1, LEFT_LAYOUT_INDEX, 1, 1)
+        self.leftFrameLayout.setContentsMargins(LEFT,0,0,0)
+
         self.angle = 0
         self.coverImage = QPixmap("C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\test1.png")
         self.musicCover = QLabel()
         
+        
+        
 
         self.scene = QGraphicsScene()
         self.view  = QGraphicsView(self.scene)
+        self.view.setObjectName("view")
+
+        self.view.setStyleSheet("""
+            QGraphicsView#view{
+                background: transparent;
+                border: none;
+            }
+        """)
         self.view.setRenderHint(QPainter.Antialiasing)
 
+    
+        self.enterRect = QGraphicsRectItem(250,250,0,1)
+        self.enterRect.setPen(QColor("white"))
+        self.scene.addItem(self.enterRect)
 
+        self.animate()
 
-        self.coverImage = self.coverImage.scaled(500, 500, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        self.disc = QGraphicsPixmapItem(self.coverImage)
-        self.disc.setTransformationMode(Qt.SmoothTransformation)
-        self.scene.addItem(self.disc)
-        
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view.setFixedSize(500,500)
-        self.view.setStyleSheet('border: none;')
-        self.left.addWidget(self.view)
+        self.view.setFixedSize(502, 750)
+        self.view.setSceneRect(0, 0, 500, 750)
 
 
 
+        self.leftMain.addWidget(self.view)
 
 
         self.songNameLayout = QHBoxLayout()
         self.songName = QLabel("NAME")
+        self.songName.setAttribute(Qt.WA_TranslucentBackground)
         self.songNameLayout.setContentsMargins(LEFT,50,0,0)
         self.songNameLayout.addWidget(self.songName, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.homeLayout.addLayout(self.songNameLayout, 2, LEFT_LAYOUT_INDEX)
+        self.leftMain.addLayout(self.songNameLayout, 2, LEFT_LAYOUT_INDEX)
 
         self.songProgressLayout = QVBoxLayout()
         self.songProgressLayout.setContentsMargins(LEFT,0,0,0)
         self.songProgressTime = QLabel("--:-- / --:--")
         self.songProgressTime.setProperty("class", "VolumeText")
+        self.songProgressTime.setAttribute(Qt.WA_TranslucentBackground)
         
 
         self.songProgress = QSlider(Qt.Horizontal)
+        self.songProgress.setStyleSheet("background: transparent;border: none;")
         self.songProgress.setEnabled(False)
         self.songProgress.setRange(0,100)
         self.songProgress.setSingleStep(1)
@@ -173,12 +204,12 @@ class Window(QWidget):
 
         
 
-        self.homeLayout.addLayout(self.songProgressLayout, 3, LEFT_LAYOUT_INDEX)
+        self.leftMain.addLayout(self.songProgressLayout, 3, LEFT_LAYOUT_INDEX)
 
         self.leftbottom = QHBoxLayout()
         self.leftbottom.setContentsMargins(LEFT,40,0,0)
         self.leftbottom.addStretch()
-        self.homeLayout.addLayout(self.leftbottom, 4, LEFT_LAYOUT_INDEX)
+        self.leftMain.addLayout(self.leftbottom, 4, LEFT_LAYOUT_INDEX)
 
         self.playPreviousIcon = QPixmap("images\\application\\cover.png").scaled(40,40)
         self.playPrevious     = QLabel()
@@ -222,22 +253,30 @@ class Window(QWidget):
         self.fastBackward.mouseMoveEvent  = self.backward
         self.play.mousePressEvent         = self.playMusic
         self.playNext.mousePressEvent     = self.next
-        self.rotate.mousePressEvent       = self.rot
+        self.rotate.mousePressEvent       = self.test
+
+        for widget in [self.playPrevious, self.fastForward, self.fastBackward, self.play, self.playNext, self.rotate]:
+            widget.setStyleSheet("""
+                background: transparent;
+                border: none;
+            """)
 
         self.sliderLayout = QHBoxLayout()
         self.sliderLayout.setContentsMargins(LEFT,0,0,30)
         self.slider = QSlider(Qt.Horizontal, objectName = "Volume")
+        self.slider.setStyleSheet("background: transparent;border: none;")
         self.slider.setRange(0,100)
         self.slider.setValue(30)
         self.slider.setSingleStep(1)
         
         self.volumeValue = QLabel(f"{self.slider.value()}")
         self.volumeValue.setProperty("class", "VolumeText")
+        self.volumeValue.setStyleSheet("background: transparent;border: none;")
 
         self.sliderLayout.setSpacing(10)
         self.sliderLayout.addWidget(self.volumeValue)
         self.sliderLayout.addWidget(self.slider)
-        self.homeLayout.addLayout(self.sliderLayout, 5, LEFT_LAYOUT_INDEX)
+        self.leftMain.addLayout(self.sliderLayout, 5, LEFT_LAYOUT_INDEX)
 
         self.slider.valueChanged.connect(self.volume)
         
@@ -248,7 +287,6 @@ class Window(QWidget):
         windowButtonsLayout.setSpacing(1)
         windowButtonsLayout.setAlignment(Qt.AlignmentFlag.AlignRight)
         windowButtonsLayout.setContentsMargins(0,10,0,0)
-
         topFrame = QFrame()
         topFrame.setLayout(windowButtonsLayout)
         #topFrame.setStyleSheet('border: 1px solid white;')
@@ -379,6 +417,65 @@ class Window(QWidget):
         self.lyricsScrollArea.setWidget(self.lyricsLabel)
         self.lyricsLayout.addWidget(self.lyricsScrollArea, alignment=Qt.AlignmentFlag.AlignTop)
       
+    # <CD cover animation>
+
+    def animate(self):
+        self.sceneTimerStopped = Signals()
+        self.sceneTimer = QTimer()
+        self.sceneTimer.timeout.connect(self.widthInc)
+        self.sceneTimer.start(3)
+        self.sceneTimerStopped.completed.connect(self.cdShow)
+            
+    def widthInc(self, *arg):
+        if self.enterRect.rect().x() < 50:
+            self.sceneTimerStopped.completed.emit()
+            self.cdHide = QGraphicsRectItem(0,502,500,248)
+            self.cdHide.setPen(QColor("#121212"))
+            self.cdHide.setBrush(QColor("#121212"))
+            self.scene.addItem(self.cdHide)
+            self.sceneTimer.stop()
+        self.enterRect.setRect(self.enterRect.rect().x() - 1 ,500,self.enterRect.rect().width() + 2,1)
+
+    def cdShow(self):
+        self.coverImage = self.coverImage.scaled(500, 500, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        self.disc = QGraphicsPixmapItem(self.coverImage)
+        self.disc.setTransformationMode(Qt.SmoothTransformation)
+        self.disc.setPos(0,400)
+        self.scene.addItem(self.disc)
+        self.cdAnimation = QVariantAnimation()
+        self.cdAnimation.setEasingCurve(QEasingCurve.OutCubic)
+        self.cdAnimation.setDuration(1000)
+        self.cdAnimation.setStartValue(self.disc.pos())
+        self.cdAnimation.setEndValue(QPointF(0,0))
+        self.cdAnimation.start()  
+        self.cdAnimation.valueChanged.connect(self.cdMove)
+        self.cdAnimation.finished.connect(self.cdShow2)
+    
+    def cdShow2(self, *arg):
+        self.cdHideTimer = QTimer()
+        self.cdHideTimer.start(200)
+        self.cdHideTimer.timeout.connect(self.cdHide.hide)
+        self.cdRectTimer = QTimer()
+        self.cdRectTimer.start(300)
+        self.cdRectTimer.timeout.connect(self.enterRect.hide)
+        self.cdAnimation = QVariantAnimation()
+        self.cdAnimation.setEasingCurve(QEasingCurve.OutCubic)
+        self.cdAnimation.setDuration(1000)
+        self.cdAnimation.setStartValue(self.disc.pos())
+        self.cdAnimation.setEndValue(QPointF(0,250))
+        self.cdAnimation.start() 
+        self.cdAnimation.valueChanged.connect(self.cdMove)
+
+    def cdMove(self, value):
+        print(self.disc.pos())
+        self.disc.setPos(value.toPoint())
+
+        
+
+    # </CD cover animation>
+
+    def test(self, *arg):
+        pass
 
     def rot(self, *arg):
         self.angle = 0
@@ -398,11 +495,13 @@ class Window(QWidget):
         self.transform.translate(-self.disc.boundingRect().center().x(), -self.disc.boundingRect().center().y())
         self.disc.setTransform(self.transform)
 
+
     def minimize(self, *arg):
         try:
-            self.timer.stop()
+            self.minimizeCountCurrent += 1
             self.showMinimized()
-            self.disc.setPos(self.disc.boundingRect().left() - 250 , self.disc.boundingRect().top() - 250)
+            self.disc.setPos(self.disc.boundingRect().left(), self.disc.boundingRect().top())
+            self.timer.stop()
         except:
             pass
 
@@ -581,10 +680,15 @@ class Window(QWidget):
             self.coverImage = QPixmap(f'C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\{list(self.musicList)[self.playingSongIndex]}.png')
             self.coverImage = self.coverImage.scaled(500, 500, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             self.disc = QGraphicsPixmapItem(self.coverImage)
+
             self.disc.setTransformationMode(Qt.SmoothTransformation)
             self.scene.addItem(self.disc)
-            
+            pos = self.disc.boundingRect().left()
+            self.disc.setPos(pos, pos)
+            print(f"pos: {pos, pos}")
             self.rot()
+            
+            
 
         if not self.playing:
             self.setPath = False
@@ -626,6 +730,8 @@ class Window(QWidget):
             self.songProgress.setRange(0,int(self.totalMinute)*60 + self.totalSecond)
             self.songProgress.sliderMoved.connect(self.sliderMovedFunc)
             self.songProgress.sliderReleased.connect(self.sliderReleasedFunc)
+
+
 
     def sliderMovedFunc(self, *arg):
         self.player.setPosition(self.songProgress.value()*1000)
@@ -863,41 +969,44 @@ class Lyrics(QRunnable):
 
     def addCover(self):
         try:
+            addCover = True
             with open("C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt", "r", encoding='utf-8') as file:
                 for line in file.readlines():
                     if self.name in line:
                         for fileName in os.listdir("C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\"):
                             if self.name == fileName[:-4]:
                                 print(f"skipping {self.name} cover")
+                                addCover = False
                                 break
 
-                        idx = line[::-1].index(" ")
-                        videoID = line[-idx:].strip("\n")
-                        
-                        self.pageImg = requests.get("https://music.youtube.com/watch?v=" + videoID)
-                        print(f"{self.name} : https://music.youtube.com/watch?v={videoID}")
-                        self.soupImg = BeautifulSoup(self.pageImg.content, "html.parser")
-                        self.coverImg = self.soupImg.find("meta", property="og:image")
-                        pathImg = f'C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\{self.name}.png'
-                        with open(pathImg, 'wb') as imgDir:
-                            imgDir.write(requests.get(self.coverImg['content']).content)
-        
-                        image = Image.open(pathImg)
-                        imageW, imageH = image.size 
-                        image.crop((280,0,imageW-280,imageH)).save(pathImg)
-                        img = Image.open(pathImg)
-                        big = (img.size[0]*10, img.size[1]*10)
+                        if addCover:
+                            idx = line[::-1].index(" ")
+                            videoID = line[-idx:].strip("\n")
+                            
+                            self.pageImg = requests.get("https://music.youtube.com/watch?v=" + videoID)
+                            print(f"{self.name} : https://music.youtube.com/watch?v={videoID}")
+                            self.soupImg = BeautifulSoup(self.pageImg.content, "html.parser")
+                            self.coverImg = self.soupImg.find("meta", property="og:image")
+                            pathImg = f'C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\{self.name}.png'
+                            with open(pathImg, 'wb') as imgDir:
+                                imgDir.write(requests.get(self.coverImg['content']).content)
+            
+                            image = Image.open(pathImg)
+                            imageW, imageH = image.size 
+                            image.crop((280,0,imageW-280,imageH)).save(pathImg)
+                            img = Image.open(pathImg)
+                            big = (img.size[0]*10, img.size[1]*10)
 
-                        mask = Image.new('L', big, 0)
-                        draw = ImageDraw.Draw(mask)
-                        draw.ellipse((0,0) + big, fill=255)
-                        draw.ellipse([big[0]//2-500,big[0]//2-500,big[0]//2+500,big[0]//2+500], fill=0) 
+                            mask = Image.new('L', big, 0)
+                            draw = ImageDraw.Draw(mask)
+                            draw.ellipse((0,0) + big, fill=255)
+                            draw.ellipse([big[0]//2-500,big[0]//2-500,big[0]//2+500,big[0]//2+500], fill=0) 
 
-                        mask = mask.resize(img.size, Image.Resampling.LANCZOS)
+                            mask = mask.resize(img.size, Image.Resampling.LANCZOS)
 
-                        img.putalpha(mask)
-                        img.save(pathImg)
-                        
+                            img.putalpha(mask)
+                            img.save(pathImg)
+                        addCover = True
             try:
                 self.signals.completed.emit()
             except:
@@ -967,7 +1076,6 @@ QWidget{
     background-color: #121212;
     color: "WHITE";
 }
-
 
 
 QSlider::groove#Volume{
