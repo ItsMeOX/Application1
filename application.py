@@ -9,8 +9,9 @@ QStackedWidget, QGraphicsPixmapItem, QGraphicsRectItem
 from PySide6.QtCore import (Qt, QPoint, QThreadPool, QRunnable, QObject, QUrl, QCoreApplication,
 Signal, QPropertyAnimation, QRect, QTimer, QPointF, QVariantAnimation, QEasingCurve)
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
-from PySide6.QtGui import QPixmap, QColor, QPainter, QTransform, QFont, QFontDatabase, QTextDocument, QTextOption
+from PySide6.QtGui import QPixmap, QColor, QPainter, QTransform, QFont, QFontDatabase, QPen
 
+import math
 import subprocess
 from random import randint
 from time import ctime, time
@@ -71,9 +72,13 @@ class Window(QWidget):
         self.initialising = True
         self.timerForcePause = True
         self.minimizeCountCurrent = 0
+        self.endingNotProcessing = True
+        self.cdFirstEnd = True
+        self.songPlaying = True
+        
         
         # init for the first time
-        self.repeatCountCurrent = 10
+        self.repeatCountCurrent = 1
         self.playProcessFunc()
 
     def homeWidgetFunc(self):
@@ -164,16 +169,14 @@ class Window(QWidget):
         self.view.setRenderHint(QPainter.Antialiasing)
 
     
-        self.enterRect = QGraphicsRectItem(250,250,0,1)
-        self.enterRect.setPen(QColor("white"))
-        self.scene.addItem(self.enterRect)
+
 
         self.animate()
 
-        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view.setFixedSize(502, 750)
-        self.view.setSceneRect(0, 0, 500, 750)
+        #self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        #self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view.setFixedSize(502, 780)
+        self.view.setSceneRect(0, 0, 500, 780)
 
 
 
@@ -416,10 +419,17 @@ class Window(QWidget):
 
         self.lyricsScrollArea.setWidget(self.lyricsLabel)
         self.lyricsLayout.addWidget(self.lyricsScrollArea, alignment=Qt.AlignmentFlag.AlignTop)
-      
+    
+        self.durationReached = Signals()
+        self.durationReached.durationReached.connect(self.endingAnimate)
+
     # <CD cover animation>
 
     def animate(self):
+        self.songPlaying = False
+        self.enterRect = QGraphicsRectItem(250,280,0,1)
+        self.enterRect.setPen(QColor("white"))
+        self.scene.addItem(self.enterRect)
         self.sceneTimerStopped = Signals()
         self.sceneTimer = QTimer()
         self.sceneTimer.timeout.connect(self.widthInc)
@@ -429,7 +439,7 @@ class Window(QWidget):
     def widthInc(self, *arg):
         if self.enterRect.rect().x() < 50:
             self.sceneTimerStopped.completed.emit()
-            self.cdHide = QGraphicsRectItem(0,502,500,248)
+            self.cdHide = QGraphicsRectItem(0,502,500,348)
             self.cdHide.setPen(QColor("#121212"))
             self.cdHide.setBrush(QColor("#121212"))
             self.scene.addItem(self.cdHide)
@@ -440,34 +450,118 @@ class Window(QWidget):
         self.coverImage = self.coverImage.scaled(500, 500, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
         self.disc = QGraphicsPixmapItem(self.coverImage)
         self.disc.setTransformationMode(Qt.SmoothTransformation)
-        self.disc.setPos(0,400)
+        self.disc.setScale(0.5)
+        self.disc.setPos(126,530)
         self.scene.addItem(self.disc)
+
+
+        self.disc.setScale(0.5)
+        self.cdSizeTimer = QTimer()
+        self.cdSize = 0.5
+        self.cdSizeTimer.timeout.connect(self.cdWidth)
+        self.cdSizeTimer.start(2)
+
         self.cdAnimation = QVariantAnimation()
-        self.cdAnimation.setEasingCurve(QEasingCurve.OutCubic)
-        self.cdAnimation.setDuration(1000)
+        self.cdAnimation.setEasingCurve(QEasingCurve.Linear)
+        self.cdAnimation.setDuration(500)
         self.cdAnimation.setStartValue(self.disc.pos())
         self.cdAnimation.setEndValue(QPointF(0,0))
         self.cdAnimation.start()  
         self.cdAnimation.valueChanged.connect(self.cdMove)
         self.cdAnimation.finished.connect(self.cdShow2)
     
+    def cdWidth(self, *arg):
+        if self.disc.scale() < 1:
+            self.cdSize += 0.002
+            self.disc.setScale(self.cdSize)
+        else:
+            self.disc.setScale(1)
+            self.cdSizeTimer.stop()
+
     def cdShow2(self, *arg):
-        self.cdHideTimer = QTimer()
-        self.cdHideTimer.start(200)
-        self.cdHideTimer.timeout.connect(self.cdHide.hide)
+        self.cdHide.hide()
         self.cdRectTimer = QTimer()
-        self.cdRectTimer.start(300)
+        self.cdRectTimer.start(230)
         self.cdRectTimer.timeout.connect(self.enterRect.hide)
+        self.cdRectTimer.timeout.connect(self.cdRectTimer.stop)
         self.cdAnimation = QVariantAnimation()
-        self.cdAnimation.setEasingCurve(QEasingCurve.OutCubic)
-        self.cdAnimation.setDuration(1000)
+        self.cdAnimation.setEasingCurve(QEasingCurve.OutBack)
+        self.cdAnimation.setDuration(800)
         self.cdAnimation.setStartValue(self.disc.pos())
         self.cdAnimation.setEndValue(QPointF(0,250))
         self.cdAnimation.start() 
         self.cdAnimation.valueChanged.connect(self.cdMove)
+        self.cdAnimation.finished.connect(self.rotEnabled)
+
+    def rotEnabled(self, *arg):
+        self.angle = 0
+        self.songPlaying = True
+
+    def endingAnimate(self):
+        self.songPlaying = False
+
+
+
+        self.cdHideShowTimer = QTimer()
+        self.cdHideShowTimer.timeout.connect(self.enterRect.show)
+        self.cdHideShowTimer.timeout.connect(self.cdHideShowTimer.stop)
+        self.cdHideShowTimer.start(250)
+
+        self.cdEndingAnimation = QVariantAnimation()
+        self.cdEndingAnimation.setEasingCurve(QEasingCurve.Linear)
+        self.cdEndingAnimation.setDuration(500)
+        self.cdEndingAnimation.setStartValue(self.disc.pos())
+        self.cdEndingAnimation.setEndValue(QPointF(0,0))
+        self.cdEndingAnimation.start() 
+        self.cdEndingAnimation.valueChanged.connect(self.cdMove)
+        self.cdEndingAnimation.finished.connect(self.endingAnimate2)
+
+    def endingAnimate2(self, *arg):
+        self.cdHide.show()
+
+        self.disc.setTransformOriginPoint(self.disc.boundingRect().center())
+
+
+        self.cdSizeTimer2 = QTimer()
+        self.cdSizeTimer2.timeout.connect(self.cdWidth2)
+        self.cdSizeTimer2.start(2)
+
+        
+
+        self.cdEndingAnimation2 = QVariantAnimation()
+        self.cdEndingAnimation2.setEasingCurve(QEasingCurve.Linear)
+        self.cdEndingAnimation2.setDuration(500)
+        self.cdEndingAnimation2.setStartValue(self.disc.pos())
+        
+        self.cdEndingAnimation2.setEndValue(QPointF(0,530))
+        self.cdEndingAnimation2.start() 
+        self.cdEndingAnimation2.valueChanged.connect(self.cdMove)
+        self.cdEndingAnimation2.finished.connect(self.enterRectRemove)
+
+
+    def enterRectRemove(self, *arg):
+        self.rectRemoveTimer = QTimer()
+        self.rectRemoveTimer.timeout.connect(self.enterRectRemove2)
+        self.rectRemoveTimer.start(3)
+    
+    def enterRectRemove2(self, *arg):
+        if self.enterRect.boundingRect().width() >= 0:
+            self.enterRect.setRect(self.enterRect.rect().x() + 1 ,500,self.enterRect.rect().width() - 2,1)
+        else:
+            self.scene.removeItem(self.enterRect)
+            self.rectRemoveTimer.stop()
+            self.songEnded()
+
+    def cdWidth2(self, *arg):
+        if self.disc.scale() > 0.5:
+            self.cdSize -= 0.002
+            self.disc.setScale(self.cdSize)
+        else:
+            self.cdSizeTimer2.stop()
+            self.endSignal = Signals()
+            self.endSignal.ended.emit()
 
     def cdMove(self, value):
-        print(self.disc.pos())
         self.disc.setPos(value.toPoint())
 
         
@@ -478,6 +572,7 @@ class Window(QWidget):
         pass
 
     def rot(self, *arg):
+        self.then2 = time()
         self.angle = 0
         self.rot2()
         self.timertimeout = 20
@@ -493,14 +588,15 @@ class Window(QWidget):
         self.transform.rotate(self.angle)
         self.transform.scale(1/5, 1/5)
         self.transform.translate(-self.disc.boundingRect().center().x(), -self.disc.boundingRect().center().y())
-        self.disc.setTransform(self.transform)
+        if self.songPlaying:
+            self.disc.setTransform(self.transform)
 
 
     def minimize(self, *arg):
         try:
             self.minimizeCountCurrent += 1
             self.showMinimized()
-            self.disc.setPos(self.disc.boundingRect().left(), self.disc.boundingRect().top())
+            self.disc.setPos(self.disc.boundingRect().left(), 250)
             self.timer.stop()
         except:
             pass
@@ -630,7 +726,9 @@ class Window(QWidget):
 
     def next(self, *arg):
         try:
-            self.statusChanged(status = QMediaPlayer.EndOfMedia)
+            self.player.setPosition(self.player.duration())
+            self.endingAnimate()
+            #self.statusChanged(status = QMediaPlayer.EndOfMedia)
         except:
             print("END OF SONG LIST")
 
@@ -648,7 +746,6 @@ class Window(QWidget):
 
     def playMusic(self, *arg): #make this button clickable after shuffle
         print(f"CURRENT INDEX: {self.playingSongIndex}")
-
         self.songHighlight()
         if self.setPath:
             try:
@@ -680,12 +777,10 @@ class Window(QWidget):
             self.coverImage = QPixmap(f'C:\\Users\\ongxu\\Downloads\\test\\music\\cover_image\\{list(self.musicList)[self.playingSongIndex]}.png')
             self.coverImage = self.coverImage.scaled(500, 500, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             self.disc = QGraphicsPixmapItem(self.coverImage)
-
             self.disc.setTransformationMode(Qt.SmoothTransformation)
-            self.scene.addItem(self.disc)
-            pos = self.disc.boundingRect().left()
-            self.disc.setPos(pos, pos)
-            print(f"pos: {pos, pos}")
+            
+            self.endingNotProcessing = False
+            self.animate()
             self.rot()
             
             
@@ -703,35 +798,38 @@ class Window(QWidget):
         self.playing = not self.playing
     
     def positionChangedProcess(self, *arg):
-        progressBarProcess = ProgressBarProcess()
-        self.pool.start(progressBarProcess)
+        self.progressBarProcess = ProgressBarProcess()
+        self.pool.start(self.progressBarProcess)
 
     def statusChanged(self, status):
-        if status == QMediaPlayer.EndOfMedia and time() - self.then > 1:
-            self.songDeHighlight()
-            self.timer.stop()
-            self.addRow()
-            self.then = time()
-            self.scrollBar.setValue(self.scrollBar.value() + self.QForm.itemAt(self.playingSongIndex).widget().height())
-            self.currentPos = 0
-            self.setPath = True
-            self.playing = False
-            self.playingSongIndex += 1
-            if not self.initialising:
-                self.count = 2
-                self.playProcessFunc()
-            self.playMusic()
-            print("END OF MUSIC")
+        #if status == QMediaPlayer.EndOfMedia and time() - self.then > 1:
+
         if status == QMediaPlayer.LoadedMedia:
+            self.endingNotProcessing = True
             self.songProgress.setEnabled(True)
             self.totalMinute = self.player.duration() / 60000
             self.totalSecond = int((self.totalMinute - int(self.totalMinute)) * 60)
             self.songProgressTime.setText("00:00/{0:02d}:{1:02d}".format(int(self.totalMinute),self.totalSecond))
             self.songProgress.setRange(0,int(self.totalMinute)*60 + self.totalSecond)
+            self.songProgress.sliderPressed.connect(lambda: self.timer.stop())
             self.songProgress.sliderMoved.connect(self.sliderMovedFunc)
             self.songProgress.sliderReleased.connect(self.sliderReleasedFunc)
 
-
+    def songEnded(self, *arg):
+        self.songDeHighlight()
+        self.timer.stop()
+        self.addRow()
+        self.then = time()
+        self.scrollBar.setValue(self.scrollBar.value() + self.QForm.itemAt(self.playingSongIndex).widget().height())
+        self.currentPos = 0
+        self.setPath = True
+        self.playing = False
+        self.playingSongIndex += 1
+        if not self.initialising:
+            self.count = 2
+            self.playProcessFunc()
+        self.playMusic()
+        print("END OF MUSIC")
 
     def sliderMovedFunc(self, *arg):
         self.player.setPosition(self.songProgress.value()*1000)
@@ -741,6 +839,7 @@ class Window(QWidget):
         self.player.pause()
 
     def sliderReleasedFunc(self, *arg):
+        self.timer.start()
         self.player.play()
 
     def songHighlight(self, *arg):
@@ -828,7 +927,7 @@ class PlayProcess(QRunnable):
                 if randomNum not in window.watched:
                     window.watched.append(randomNum)  
                     print(window.watched, randomNum)
-                    ydl_cmd = ['yt-dlp', '--playlist-items', str(randomNum), '--extract-audio', '--audio-format', 'wav', '--audio-quality', '256', '-o', filename, "--download-archive", "C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt" , url]
+                    ydl_cmd = ['yt-dlp', '--playlist-items', str(randomNum), '--extract-audio', '--audio-format', 'wav', '--audio-quality', '256', '-o', filename, "-q","--download-archive", "C:\\Users\\ongxu\\Downloads\\test\\music\\history.txt" , url]
                     process = subprocess.Popen(ydl_cmd)
                     process.wait()
                     self.signals.completed.emit()
@@ -886,6 +985,10 @@ class AddMusic(QRunnable):
         print(window.musicList)
 
 class ProgressBarProcess(QRunnable):
+    def __init__(self):
+        super().__init__()
+        self.totalDuration = window.player.duration()
+
     def run(self):
         self.positionChangedFunc()
         
@@ -894,10 +997,16 @@ class ProgressBarProcess(QRunnable):
         second = window.player.position()/1000 - int(minute)*60
         window.songProgressTime.setText("{0:02d}:{1:02d}/{2:02d}:{3:02d}".format(int(minute),int(second),int(window.totalMinute),window.totalSecond))
         window.songProgress.setValue(int(minute)*60 + int(second))
+        if window.player.position() > self.totalDuration - 1000 and window.endingNotProcessing:
+            self.durationRemaining = self.totalDuration - window.player.position()
+            window.durationReached.durationReached.emit()
+            window.endingNotProcessing = False
 
 class Signals(QObject):
     completed = Signal()
     failed = Signal()
+    durationReached = Signal()
+    ended = Signal()
 
 class Lyrics(QRunnable):
     def __init__(self, name: str):
