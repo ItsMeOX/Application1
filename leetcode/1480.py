@@ -7,3 +7,6 @@ class Solution:
         print(nums)
 sol = Solution()
 sol.runningSum([0,1,2,3,4,5])
+
+
+print(3%5)
