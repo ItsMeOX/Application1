@@ -6,7 +6,6 @@ class Solution:
         i = 0
         l = len(nums)
         while(i < l):
-            print(i,l)
             if nums[i] == 0:
                 nums.pop(i)
                 nums.append(0)
