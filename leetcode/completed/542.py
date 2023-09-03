@@ -1,38 +1,59 @@
+from typing import List
+from collections import deque
+
 class Solution:
-    def updateMatrix(self, mat: list[list[int]]) -> list[list[int]]:
-        q = []
+    def updateMatrix(self, mat: List[List[int]]) -> List[List[int]]:
+        m, n = len(mat), len(mat[0])
+        directions = ((-1, 0),(1, 0),(0, -1),(0, 1))
+        # find border
+        q = deque()
+        visited = set()
+        for r in range(m):
+            for c in range(n):
+                if mat[r][c] == 0: continue
+                for dr, dc in directions:
+                    if 0 <= r + dr < m and 0 <= c + dc < n and mat[r+dr][c+dc] == 0:
+                        q.append((r, c))
+                        visited.add((r, c))
+                        break
 
-        row_len = len(mat)
-        col_len = len(mat[0])
-        visited = [[0 for _ in range(col_len)] for _ in range(row_len)]
-
-        def bfs(mat, row, col):
-            if mat[row][col] == 0:
-                return
-            
-            if visited[row][col] == 1:
-                return
-                
-            visited[row][col] = 1
-
-            while q:
-                row, col = q.pop(0)
-                current_value = mat[row][col]
-
-                if visited[row][col] == 1:
-                    if mat[row][col] > current_value + 1:
-                        visited[row][col] = 0
-                        q.append([row,col])
-            
-
-        for row in mat:
-            for col in row:
-                q.append([row,col])
-                bfs(mat,row,col)
+        level = 1
+        while q:
+            for _ in range(len(q)):
+                r, c = q.popleft()
+                mat[r][c] = level
+                for dr, dc in directions:
+                    if 0 <= r+dr < m and 0 <= c + dc < n and mat[r+dr][c+dc] == 1:
+                        if (r+dr, c+dc) not in visited:
+                            visited.add((r+dr, c+dc))
+                            q.append((r+dr, c+dc))
+            level += 1
         
         return mat
+    
+# Optimization: start BFS from zeros, mark 1 as -1 (unvisited).
 
-mat = [[1,0,0],[0,1,0],[1,1,1]]
+class Solution:
+    def updateMatrix(self, mat: List[List[int]]) -> List[List[int]]:
+        m, n = len(mat), len(mat[0])
+        directions = ((-1, 0),(1, 0),(0, -1),(0, 1))
 
-sol = Solution()
-sol.updateMatrix()
+        q = deque()
+        for r in range(m):
+            for c in range(n):
+                if mat[r][c] == 0:
+                    q.append((r, c))
+                else:
+                    mat[r][c] = -1
+
+        level = 1
+        while q:
+            for _ in range(len(q)):
+                r, c = q.popleft()
+                for dr, dc in directions:
+                    if 0 <= r+dr < m and 0 <= c + dc < n and mat[r+dr][c+dc] == -1:
+                        mat[r+dr][c+dc] = level
+                        q.append((r+dr, c+dc))
+            level += 1
+        
+        return mat
